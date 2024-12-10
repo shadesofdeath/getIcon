@@ -1,184 +1,122 @@
-// logoFinder.js
-class LogoFinder {
-    constructor() {
-        this.sources = {
-            // Google'ın resmi logo servisi
-            google: (domain) => `https://www.google.com/s2/favicons?sz=256&domain=${domain}`,
-            
-            // Clearbit logo API
-            clearbit: (domain) => `https://logo.clearbit.com/${domain}?size=512`,
-            
-            // BrandFetch API alternatifi
-            brandfetch: (domain) => `https://asset.brandfetch.io/icons/${domain}`,
-            
-            // Alternatif logo kaynakları
-            alternates: [
-                (domain) => `https://${domain}/assets/images/logo.png`,
-                (domain) => `https://${domain}/assets/logo.png`,
-                (domain) => `https://${domain}/images/logo.png`,
-                (domain) => `https://${domain}/logo.png`,
-                (domain) => `https://${domain}/assets/img/logo.png`,
-                (domain) => `https://${domain}/static/images/logo.png`
-            ]
-        };
-    }
-
-    async findLogo(domain) {
+// logoService.js
+class LogoService {
+    async getLogo(domain) {
         try {
-            // Domain formatını düzelt
-            domain = this.formatDomain(domain);
-            
-            // Tüm olası logoları topla
-            const possibleLogos = await this.collectPossibleLogos(domain);
-            
-            // Logo kontrolü ve sıralama
-            const validLogos = await this.validateAndRankLogos(possibleLogos);
+            // Domain temizleme
+            domain = this.cleanDomain(domain);
 
-            if (validLogos.length > 0) {
-                return {
-                    success: true,
-                    timestamp: new Date().toISOString(),
-                    domain: domain,
-                    logos: validLogos
-                };
-            } else {
-                throw new Error('No valid logos found');
+            // En güvenilir servisleri sırayla deneyelim
+            const services = [
+                {
+                    name: 'Clearbit',
+                    url: `https://logo.clearbit.com/${domain}?size=512`,
+                    quality: 'HD'
+                },
+                {
+                    name: 'Brandfetch',
+                    url: `https://api.brandfetch.io/v2/brands/${domain}`,
+                    quality: 'HD'
+                },
+                {
+                    name: 'Google',
+                    url: `https://www.google.com/s2/favicons?sz=256&domain=${domain}`,
+                    quality: 'High'
+                }
+            ];
+
+            // İlk çalışan servisi döndür
+            for (const service of services) {
+                if (await this.isImageAvailable(service.url)) {
+                    return {
+                        status: 200,
+                        message: "Success! Logo found.",
+                        data: {
+                            url: service.url,
+                            provider: service.name,
+                            quality: service.quality,
+                            domain: domain,
+                            timestamp: new Date().toISOString()
+                        }
+                    };
+                }
             }
+
+            throw new Error("No logo found");
 
         } catch (error) {
             return {
-                success: false,
+                status: 404,
+                message: "Logo not found",
                 error: error.message,
-                domain: domain
+                domain: domain,
+                timestamp: new Date().toISOString()
             };
         }
     }
 
-    formatDomain(domain) {
-        // HTTP/HTTPS ve www. kaldır
-        return domain.replace(/^(https?:\/\/)?(www\.)?/, '').replace(/\/$/, '');
-    }
-
-    async collectPossibleLogos(domain) {
-        const logos = [];
-
-        // Ana kaynaklar
-        logos.push({
-            url: this.sources.google(domain),
-            source: 'google',
-            priority: 3,
-            size: 256
-        });
-
-        logos.push({
-            url: this.sources.clearbit(domain),
-            source: 'clearbit',
-            priority: 4,
-            size: 512
-        });
-
-        logos.push({
-            url: this.sources.brandfetch(domain),
-            source: 'brandfetch',
-            priority: 3,
-            size: 256
-        });
-
-        // Alternatif kaynaklar
-        this.sources.alternates.forEach((source, index) => {
-            logos.push({
-                url: source(domain),
-                source: 'alternate',
-                priority: 2,
-                attemptIndex: index
-            });
-        });
-
-        return logos;
-    }
-
-    async validateAndRankLogos(logos) {
-        const validLogos = [];
-
-        for (const logo of logos) {
-            try {
-                // Logo boyutlarını ve geçerliliğini kontrol et
-                const dimensions = await this.checkImage(logo.url);
-                
-                if (dimensions.width >= 100 && dimensions.height >= 100) {
-                    validLogos.push({
-                        url: logo.url,
-                        source: logo.source,
-                        width: dimensions.width,
-                        height: dimensions.height,
-                        quality_score: this.calculateQualityScore(logo, dimensions)
-                    });
-                }
-            } catch (error) {
-                continue; // Geçersiz logoları atla
-            }
-        }
-
-        // Kalite skoruna göre sırala ve en iyi 3 logoyu döndür
-        return validLogos
-            .sort((a, b) => b.quality_score - a.quality_score)
-            .slice(0, 3);
-    }
-
-    calculateQualityScore(logo, dimensions) {
-        let score = 0;
-
-        // Boyut skoru
-        score += Math.min(dimensions.width, 1000) / 200; // Max 5 puan
-        
-        // Kaynak güvenilirliği
-        const sourceScores = {
-            'clearbit': 5,
-            'google': 4,
-            'brandfetch': 4,
-            'alternate': 3
-        };
-        score += sourceScores[logo.source] || 0;
-
-        // Aspect ratio skoru (1'e yakın oranlar daha iyi)
-        const ratio = dimensions.width / dimensions.height;
-        const ratioScore = Math.abs(1 - ratio) < 0.3 ? 2 : 0;
-        score += ratioScore;
-
-        return Math.round(score * 10) / 10;
-    }
-
-    async checkImage(url) {
-        return new Promise((resolve, reject) => {
+    async isImageAvailable(url) {
+        try {
             const img = new Image();
-            
-            img.onload = () => {
-                resolve({
-                    width: img.width,
-                    height: img.height,
-                    valid: true
-                });
-            };
-            
-            img.onerror = () => reject(new Error('Invalid image'));
-            
             img.src = url;
-        });
+            
+            return new Promise((resolve) => {
+                img.onload = () => resolve(true);
+                img.onerror = () => resolve(false);
+            });
+        } catch {
+            return false;
+        }
+    }
+
+    cleanDomain(domain) {
+        return domain
+            .toLowerCase()
+            .replace(/^(https?:\/\/)?(www\.)?/i, '')
+            .replace(/\/$/, '')
+            .trim();
     }
 }
 
-// API endpoint handler
+// API endpoint
 const params = new URLSearchParams(window.location.search);
 const domain = params.get('domain');
 
 if (domain) {
-    const finder = new LogoFinder();
-    finder.findLogo(domain).then(result => {
-        document.body.textContent = JSON.stringify(result, null, 2);
+    const service = new LogoService();
+    service.getLogo(domain).then(result => {
+        // Pretty JSON output
+        document.body.innerHTML = `
+            <pre style="
+                background: #f6f8fa;
+                padding: 20px;
+                border-radius: 8px;
+                font-family: monospace;
+                font-size: 14px;
+                line-height: 1.5;
+                overflow: auto;
+                max-width: 800px;
+                margin: 20px auto;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            ">${JSON.stringify(result, null, 2)}</pre>
+        `;
     });
 } else {
-    document.body.textContent = JSON.stringify({
-        success: false,
-        error: "Domain parameter is required"
-    }, null, 2);
+    document.body.innerHTML = `
+        <pre style="
+            background: #f6f8fa;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            overflow: auto;
+            max-width: 800px;
+            margin: 20px auto;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        ">${JSON.stringify({
+            status: 400,
+            message: "Domain parameter is required",
+            timestamp: new Date().toISOString()
+        }, null, 2)}</pre>
+    `;
 }
