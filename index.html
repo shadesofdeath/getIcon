@@ -2,9 +2,16 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Professional Logo API</title>
+    <title>Logo Finder API</title>
+    <script src="logoFinder.js" defer></script>
 </head>
 <body>
-    <script src="logoAPI.js"></script>
+    <script>
+        // CORS proxy'leri için header ekleme
+        const meta = document.createElement('meta');
+        meta.setAttribute('http-equiv', 'Content-Security-Policy');
+        meta.setAttribute('content', "default-src 'self' https: data: 'unsafe-inline' 'unsafe-eval'");
+        document.head.appendChild(meta);
+    </script>
 </body>
 </html>
